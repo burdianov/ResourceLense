@@ -1,0 +1,130 @@
+# ============================================
+# ResourceLense
+# ============================================
+
+# --------------------------------------------
+# Environment variables / secrets
+# --------------------------------------------
+.env
+.env.*
+!.env.example
+
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+
+# --------------------------------------------
+# Frontend - Node / Vite
+# --------------------------------------------
+node_modules/
+frontend/node_modules/
+
+dist/
+frontend/dist/
+
+.vite/
+frontend/.vite/
+
+*.local
+
+# TypeScript build info
+*.tsbuildinfo
+
+
+# --------------------------------------------
+# Backend - Python
+# --------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python build artifacts
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Ruff
+.ruff_cache/
+
+# Mypy
+.mypy_cache/
+
+
+# --------------------------------------------
+# Logs
+# --------------------------------------------
+*.log
+logs/
+
+
+# --------------------------------------------
+# Databases / local data
+# --------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+
+postgres-data/
+pgdata/
+
+
+# --------------------------------------------
+# IDE / Editors
+# --------------------------------------------
+.vscode/
+.idea/
+
+*.swp
+*.swo
+
+
+# --------------------------------------------
+# Operating systems
+# --------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+
+# --------------------------------------------
+# Temporary files
+# --------------------------------------------
+tmp/
+temp/
+*.tmp
+*.bak
+
+
+# --------------------------------------------
+# Docker local overrides
+# --------------------------------------------
+docker-compose.override.yml
+compose.override.yml
