@@ -1,6 +1,8 @@
 from fastapi import FastAPI
+from sqlalchemy import text
 
 from app.core.config import settings
+from app.db.session import engine
 
 
 app = FastAPI(
@@ -16,3 +18,11 @@ def health_check() -> dict[str, str]:
         "status": "ok",
         "environment": settings.environment,
     }
+
+
+@app.get("/api/v1/health/database")
+def database_health_check() -> dict[str, str]:
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+
+    return {"database": "ok"}

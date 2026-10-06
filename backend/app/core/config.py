@@ -12,6 +12,9 @@ class Settings(BaseSettings):
         "postgresql+psycopg://resourcelense:resourcelense@localhost:5432/resourcelense"
     )
 
+    jwt_secret_key: str
+    access_token_expire_minutes: int = 480
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
