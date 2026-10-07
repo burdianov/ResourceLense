@@ -14,7 +14,8 @@
 
 - `cd backend && uv run pytest -q` → **101 passed** (auth, RBAC, users, roles, projects, master data, employees, rates, forecasts).
 - `uv run alembic current` → `9763603b7163 (head)` — business settings + forecast engine applied to the dev database.
-- Commits on `main` (2026-10-08): `9fb87e9` master data + rate engine (phases 2–3), `c784b47` forecast engine backend (phase 4). Working tree clean after each.
+- Commits on `main` (2026-10-08), **pushed to `origin/main`**: `9fb87e9` master data + rate engine (phases 2–3), `c784b47` forecast engine backend (phase 4), `697709f` handoff update.
+- An independent code review of phases 2–4 followed (10 review angles, every finding reproduced against the live test database; models/migrations confirmed in sync). Its findings are the backlog below — **pushed unfixed by explicit decision** (private repo, no deployment).
 
 ## Phase status
 
@@ -24,8 +25,8 @@
 | 2 | Master data (backend) | ✅ **DONE** |
 | 2f | Master data frontend UI | ❌ NOT STARTED |
 | 3 | Rate engine (backend) | ✅ **DONE** (2 small follow-ups; #3 resolved in Phase 4) |
-| 4 | Forecast engine (backend) | ✅ **DONE** |
-| 4f | Forecast editor UI (spreadsheet grid) | ❌ NOT STARTED — **next up** |
+| 4 | Forecast engine (backend) | ✅ **DONE** — but fix the review backlog (P0/P1) before building on it |
+| 4f | Forecast editor UI (spreadsheet grid) | ❌ NOT STARTED — after the review backlog |
 | 5 | Assignment engine | ❌ NOT STARTED |
 | 6 | Transfers | ❌ NOT STARTED |
 | 7 | Leave | ❌ NOT STARTED |
@@ -82,6 +83,45 @@ All with backend-enforced project scope, RBAC guards, and tests:
   - Month cells set to 0 are kept (blank/0 both accepted per §30).
   - Cost view is a response-shaping concern: same endpoints, fields omitted without the permission.
 
+### Code review backlog (2026-10-08) — ALL PENDING, none fixed yet
+
+Verified findings from an independent review of phases 2–4. Fix P0/P1 before building further on these modules; every fix deserves a regression test. Fixes should be re-verified with `uv run pytest -q` and `uv run alembic check`.
+
+**P0 — security / data integrity**
+
+1. **Project-scope bypass in membership/approver endpoints** (`backend/app/api/v1/endpoints/projects.py` ~381, 438, 472, 541, 589, 632). Writes resolve the project with `project_by_id()` instead of `require_visible_project()`, so a user holding only `project_memberships.manage` can grant themselves access to any project (verified 403 → 201). Every membership/approver path must enforce project scope.
+2. **Publish crashes when an older draft is published while a newer version is current** (`backend/app/services/forecasts.py` ~295). Superseding the old current and flipping the new `is_current` land in one flush; SQLAlchemy orders UPDATEs by PK, tripping `uq_forecast_versions_one_current` → HTTP 500. Flush the supersede before setting `is_current = True`.
+3. **`PATCH /employees` silently discards `employment_status`, `employment_source`, `resource_provider_id`** (`backend/app/api/v1/endpoints/employees.py` ~294, setattr loop omits them). A terminated employee can never be reactivated; a wrong source/provider can never be corrected.
+4. **`POST /employees` drops `join_date` / `termination_date`** (`backend/app/api/v1/endpoints/employees.py` ~217 — accepted on `EmployeeIn`, never passed to the model, not exposed on `EmployeeOut`).
+5. **Rate overlap check misses bounded-new vs open-ended-existing** (`backend/app/services/rates.py` ~82): `ends_inside` requires an existing end date, so e.g. `[2026-05, 2026-06]` overlapping an open-ended rate is accepted (verified) — breaks §19/#20 and makes resolution order-dependent.
+6. **Lowercase `currency_code` skips the overlap check** (`backend/app/api/v1/endpoints/rates.py` ~106/168): the guard compares the raw code while the row is stored upper-cased. Canonicalise once via a validator.
+7. **`DELETE /departments/{id}` silently nulls employees' department** (`backend/app/api/v1/endpoints/departments.py` ~122): the guard checks designations only while the employees FK is `SET NULL`.
+
+**P1 — 500s / wrong status codes**
+
+8. `DELETE /designations/{id}` referenced by a forecast line → 500 (FK restrict); add `ForecastLine` to the reference guard (`backend/app/api/v1/endpoints/designations.py` ~131).
+9. `PATCH /employees` existence-checks only `designation_id`; a bad `department_id` / `employee_category_id` / `trade_id` → IntegrityError 500 (`backend/app/api/v1/endpoints/employees.py` ~260).
+10. Naive datetimes → TypeError 500: rate `end` endpoints (`backend/app/api/v1/endpoints/rates.py` ~207/248) and create-path comparisons (`backend/app/services/rates.py` ~80); a browser's `2026-06-30` / `...T00:00:00` without tz must be normalised or 422 — the test suite only ever sends `...Z`.
+11. `POST /employees/{id}/terminate` with a malformed date → 500 (`backend/app/api/v1/endpoints/employees.py` ~335, raw `fromisoformat`); should be 422.
+12. Archived projects are not frozen for forecast writes: only `create_version` checks `archived_at`; lines can be added to and drafts published in an archived project (`backend/app/api/v1/endpoints/forecasts.py`).
+
+**P2 — correctness / hygiene**
+
+13. Membership `valid_from`/`valid_to` are stored and returned but never evaluated — time-boxed access never expires (`backend/app/api/scope.py` ~34; `visible_project_ids` uses the same filter).
+14. `next_version_no` is an unlocked `max()+1` → concurrent create/clone 500s on the unique constraint (`backend/app/services/forecasts.py` ~87; e.g. a double-clicked "New forecast").
+15. `backend/tests/conftest.py` (~78) TRUNCATE cascade also wipes `business_settings` (the seeded §22 config is never exercised — 208 assertions pass via the Python fallback) and master-data tables without a users FK accumulate across tests.
+16. N+1: per-cell `resolve_rate` + lazy relationship loads → ~21 statements per line × 12 months (`backend/app/services/forecast_costs.py` ~68–130); every write endpoint rebuilds the full detail. Use `selectinload` + one batched rate lookup.
+17. Missing indexes on `employee_rates.employee_id` / `designation_rates.designation_id` (the WHERE key of every rate lookup; EXPLAIN shows Seq Scan + Sort).
+18. Schema duplication: `backend/app/schemas/project.py` ~222–445 duplicates the reference/employee schemas (dead), `_to_list_item`/`_to_detail` exist three times, and the `endpoints/employees.py` twin has drifted (`join_date: str` vs `datetime`).
+19. `hourly_rate` has no upper bound vs `NUMERIC(14,4)` → field overflow 500 (`backend/app/api/v1/endpoints/rates.py` ~22/44); add `le=9999999999.9999`.
+20. Overlap uniqueness is per-currency but resolution has no currency notion (`backend/app/services/rates.py` ~71) — two effective rates in different currencies make one silently unreachable.
+21. A designation's `department_id` cannot be cleared with an explicit `null` (`backend/app/api/v1/endpoints/designations.py` ~93 uses `is not None` instead of `model_fields_set`).
+22. `Decimal('NaN')` in `business_settings` → 500 on every forecast detail (`backend/app/services/settings.py` ~37); guard with `is_finite()`.
+23. Whitespace-only role name stored as `""` (`backend/app/api/v1/endpoints/roles.py` ~101, `min_length` checked before `strip()`).
+24. `projects.archived_by_id` is never written (audit column always NULL).
+25. `RoleResponse` lost `from_attributes` (moved onto `PermissionResponse`) — latent (`backend/app/schemas/role.py` ~25–30).
+26. Dead code + precision: `monthly_cost()` duplicates the §28 formula and has no callers (`backend/app/services/rates.py` ~191); costs round from binary floats (0.07% × 46.8750 → 6.83 vs 6.82 exact) (`forecast_costs.py` ~107/145).
+
 ### Decisions taken (do not re-litigate unless requirements change)
 
 - Integer surrogate PKs everywhere (matching existing `users`/`roles`), not the UUIDs "recommended" in §8/§17.
@@ -94,9 +134,10 @@ All with backend-enforced project scope, RBAC guards, and tests:
 
 ### Next session — start here
 
-1. **Phase 4f — Forecast editor UI** (spec #30–#32): spreadsheet-style grid with sticky designation/employee columns, sticky header, horizontally scrollable month columns, keyboard navigation, fill right/range, row duplicate, percentage presets, in-grid validation, save-state indicator, and a Cost View toggle gated by `forecasts.cost.view`. The backend is ready — especially `PUT /forecasts/lines/{id}/months` for arbitrary cell batches; frontend needs a `features/forecasts/` module + types + query keys, following the existing `features/roles` pattern.
-2. Then **Phase 5 — Assignment engine** (spec #33–#39): `employee_project_assignments`, assignment requests + approvals, availability engine, allocation validation under lock.
-3. Backlog: master-data frontend UI (Phase 2f), DB-level rate/check constraints + effective-date indexes (Phase 3 follow-ups), ERD doc (Phase 1 gap), retire legacy `resources.*` permissions.
+1. **Fix the code review backlog above, P0 first.** Suggested order: 1 → 2 → 3+4 → 5+6 → 7, then P1 (8–12), then P2 (13–15). Each fix needs a regression test; the findings describe exact reproduction steps. Finish with `uv run pytest -q` + `uv run alembic check`, then commit and push.
+2. **Then Phase 4f — Forecast editor UI** (spec #30–#32): spreadsheet-style grid with sticky designation/employee columns, sticky header, horizontally scrollable month columns, keyboard navigation, fill right/range, row duplicate, percentage presets, in-grid validation, save-state indicator, and a Cost View toggle gated by `forecasts.cost.view`. The backend is ready — especially `PUT /forecasts/lines/{id}/months` for arbitrary cell batches. Frontend stack: React 19, TanStack Query 5, react-hook-form + zod, **no grid library installed** (build a custom table); follow the `features/roles/*` + `types/*` + `lib/query-keys.ts` conventions; `features/forecasts/` and `features/projects/` are empty today.
+3. Then **Phase 5 — Assignment engine** (spec #33–#39): `employee_project_assignments`, assignment requests + approvals, availability engine, allocation validation under lock.
+4. Remaining backlog: master-data frontend UI (Phase 2f), DB-level rate/check constraints + effective-date indexes (Phase 3 follow-ups), ERD doc (Phase 1 gap), retire legacy `resources.*` permissions.
 
 ### How to verify / update this block
 
