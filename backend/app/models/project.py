@@ -8,6 +8,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -154,6 +155,14 @@ class ProjectMembership(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "user_id",
+            name="uq_project_memberships_project_user",
+        ),
     )
 
     project = relationship("Project", back_populates="memberships")

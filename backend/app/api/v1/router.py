@@ -4,6 +4,7 @@ from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.departments import router as departments_router
 from app.api.v1.endpoints.designations import router as designations_router
 from app.api.v1.endpoints.employees import router as employees_router
+from app.api.v1.endpoints.forecasts import router as forecasts_router
 from app.api.v1.endpoints.misc_master import (
     categories_router,
     providers_router,
@@ -30,3 +31,4 @@ api_router.include_router(trades_router)
 api_router.include_router(providers_router)
 api_router.include_router(rates_router)
 api_router.include_router(employees_router)
+api_router.include_router(forecasts_router)

@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.employee import DesignationRate, EmployeeRate
+from app.services.settings import DEFAULT_MONTHLY_STANDARD_HOURS
 
 
 @dataclass(frozen=True)
@@ -98,25 +99,29 @@ def assert_no_overlap(
 def resolve_rate(
     db: Session,
     *,
-    employee_id: int,
+    employee_id: int | None,
     designation_id: int,
     target_date: datetime,
 ) -> ResolvedRate | None:
     """Resolve the applicable hourly rate for an employee on a date.
 
-    Returns None when no rate exists at all — callers must surface that as a
-    validation error, never substitute zero.
+    Unnamed forecast lines pass ``employee_id=None`` and resolve straight
+    to the designation rate. Returns None when no rate exists at all —
+    callers must surface that as a validation error, never substitute zero.
     """
-    employee_rate = _effective_rate(
-        list(
-            db.scalars(
-                select(EmployeeRate)
-                .where(EmployeeRate.employee_id == employee_id)
-                .order_by(EmployeeRate.effective_from.desc())
-            ).all()
-        ),
-        target_date,
-    )
+    employee_rate = None
+
+    if employee_id is not None:
+        employee_rate = _effective_rate(
+            list(
+                db.scalars(
+                    select(EmployeeRate)
+                    .where(EmployeeRate.employee_id == employee_id)
+                    .order_by(EmployeeRate.effective_from.desc())
+                ).all()
+            ),
+            target_date,
+        )
 
     if employee_rate is not None:
         return ResolvedRate(
@@ -155,7 +160,7 @@ def resolve_rate(
 def require_rate(
     db: Session,
     *,
-    employee_id: int,
+    employee_id: int | None,
     designation_id: int,
     target_date: datetime,
 ) -> ResolvedRate:
@@ -180,7 +185,7 @@ def require_rate(
 
 
 # Standard monthly hours (spec #22): one central definition.
-MONTHLY_STANDARD_HOURS = 208
+MONTHLY_STANDARD_HOURS = DEFAULT_MONTHLY_STANDARD_HOURS
 
 
 def monthly_cost(
@@ -189,12 +194,13 @@ def monthly_cost(
     allocation_percentage: float,
     hourly_rate: float,
     month_fraction: float = 1.0,
+    standard_hours: float = float(DEFAULT_MONTHLY_STANDARD_HOURS),
 ) -> float:
     """Cost for one month: HC x pct x 208 x rate x month_fraction."""
     return (
         headcount
         * (allocation_percentage / 100.0)
-        * MONTHLY_STANDARD_HOURS
+        * standard_hours
         * hourly_rate
         * month_fraction
     )

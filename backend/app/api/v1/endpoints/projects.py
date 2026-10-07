@@ -3,6 +3,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.dependencies import require_permission
+from app.api.scope import (
+    project_by_id,
+    require_visible_project,
+    user_can_access_project,
+    visible_project_ids,
+)
 from app.db.session import get_db
 from app.models.project import Project, ProjectApprover, ProjectMembership
 from app.models.user import User
@@ -21,10 +27,6 @@ from app.schemas.project import (
 
 
 router = APIRouter(prefix="/projects", tags=["projects"])
-
-
-def _is_super_user(user: User) -> bool:
-    return any(role.name == "admin" for role in user.roles)
 
 
 def _to_list_item(project: Project) -> ProjectListItem:
@@ -61,67 +63,6 @@ def _to_detail(project: Project) -> ProjectDetail:
         created_at=project.created_at,
         updated_at=project.updated_at,
     )
-
-
-def user_can_access_project(
-    current_user: User,
-    project_id: int,
-    db: Session,
-) -> bool:
-    """Project-scope check. Admin bypasses; everyone else needs membership."""
-    if _is_super_user(current_user):
-        return True
-
-    membership = db.scalar(
-        select(ProjectMembership).where(
-            ProjectMembership.project_id == project_id,
-            ProjectMembership.user_id == current_user.id,
-            ProjectMembership.is_active.is_(True),
-        )
-    )
-
-    return membership is not None
-
-
-def visible_project_ids(current_user: User, db: Session) -> list[int] | None:
-    """IDs of projects the user may see, or None for unrestricted (admin)."""
-    if _is_super_user(current_user):
-        return None
-
-    return list(
-        db.scalars(
-            select(ProjectMembership.project_id).where(
-                ProjectMembership.user_id == current_user.id,
-                ProjectMembership.is_active.is_(True),
-            )
-        ).all()
-    )
-
-
-def _project_by_id(db: Session, project_id: int) -> Project | None:
-    return db.scalar(select(Project).where(Project.id == project_id))
-
-
-def _require_visible_project(
-    current_user: User,
-    project_id: int,
-    db: Session,
-) -> Project:
-    project = _project_by_id(db, project_id)
-
-    if project is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
-        )
-
-    if not user_can_access_project(current_user, project_id, db):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this project",
-        )
-
-    return project
 
 
 def _clean(value: str | None, max_length: int) -> str | None:
@@ -211,7 +152,7 @@ def get_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("projects.view")),
 ) -> ProjectDetail:
-    project = _require_visible_project(current_user, project_id, db)
+    project = require_visible_project(current_user, project_id, db)
 
     return _to_detail(project)
 
@@ -285,7 +226,7 @@ def update_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("projects.edit")),
 ) -> ProjectDetail:
-    project = _require_visible_project(current_user, project_id, db)
+    project = require_visible_project(current_user, project_id, db)
 
     if data.code is not None:
         code = data.code.strip()
@@ -367,7 +308,7 @@ def archive_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("projects.archive")),
 ) -> ProjectDetail:
-    project = _require_visible_project(current_user, project_id, db)
+    project = require_visible_project(current_user, project_id, db)
 
     if project.archived_at is None:
         from datetime import UTC, datetime
@@ -386,7 +327,7 @@ def unarchive_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("projects.archive")),
 ) -> ProjectDetail:
-    project = _require_visible_project(current_user, project_id, db)
+    project = require_visible_project(current_user, project_id, db)
 
     if project.archived_at is not None:
         project.archived_at = None
@@ -413,7 +354,7 @@ def list_project_memberships(
         require_permission("project_memberships.view")
     ),
 ) -> list[ProjectMembershipResponse]:
-    project = _require_visible_project(current_user, project_id, db)
+    project = require_visible_project(current_user, project_id, db)
 
     statement = (
         select(ProjectMembership)
@@ -437,7 +378,7 @@ def add_project_membership(
         require_permission("project_memberships.manage")
     ),
 ) -> ProjectMembershipResponse:
-    project = _project_by_id(db, project_id)
+    project = project_by_id(db, project_id)
 
     if project is None:
         raise HTTPException(
@@ -570,7 +511,7 @@ def list_project_approvers(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("project_approvers.view")),
 ) -> list[ProjectApproverResponse]:
-    project = _require_visible_project(current_user, project_id, db)
+    project = require_visible_project(current_user, project_id, db)
 
     statement = (
         select(ProjectApprover)
@@ -597,7 +538,7 @@ def add_project_approver(
         require_permission("project_approvers.manage")
     ),
 ) -> ProjectApproverResponse:
-    project = _project_by_id(db, project_id)
+    project = project_by_id(db, project_id)
 
     if project is None:
         raise HTTPException(

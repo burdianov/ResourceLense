@@ -15,6 +15,12 @@ from app.models.employee import (
     DesignationRate,
     EmployeeRate,
 )
+from app.models.settings import BusinessSetting
+from app.models.forecast import (
+    ForecastVersion,
+    ForecastLine,
+    ForecastLineMonth,
+)
 
 __all__ = [
     "Permission",
@@ -34,4 +40,10 @@ __all__ = [
     "Employee",
     "DesignationRate",
     "EmployeeRate",
+    # settings
+    "BusinessSetting",
+    # forecasts
+    "ForecastVersion",
+    "ForecastLine",
+    "ForecastLineMonth",
 ]

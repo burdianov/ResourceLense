@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.scripts.seed_rbac import PERMISSIONS
 from tests.conftest import API
 
 
@@ -127,7 +128,7 @@ def test_the_admin_role_cannot_be_modified_or_deleted(
     still_there = admin_client.get(f"{API}/roles/").json()
     admin = next(role for role in still_there if role["name"] == "admin")
 
-    assert len(admin["permissions"]) == 31
+    assert len(admin["permissions"]) == len(PERMISSIONS)
 
 
 def test_cannot_delete_a_role_that_is_still_assigned(
@@ -200,9 +201,10 @@ def test_permission_catalogue_is_protected_and_complete(
 
     names = {permission["name"] for permission in response.json()}
 
-    assert len(names) == 31
+    assert len(names) == len(PERMISSIONS)
     assert {"users.view", "roles.view", "projects.view", "reports.view"} <= names
     assert {"projects.archive", "master_data.manage", "rates.manage"} <= names
+    assert {"forecasts.view", "forecasts.publish", "forecasts.cost.view"} <= names
 
 
 def test_permission_catalogue_requires_roles_view(

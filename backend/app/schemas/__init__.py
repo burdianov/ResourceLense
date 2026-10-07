@@ -11,19 +11,6 @@ from app.schemas.user import (
     UserPasswordReset,
     UserUpdate,
 )
-from app.schemas.auth import CurrentUserResponse, LoginRequest
-from app.schemas.role import (
-    PermissionResponse,
-    RoleCreate,
-    RoleResponse,
-    RoleUpdate,
-)
-from app.schemas.user import (
-    UserCreate,
-    UserListItem,
-    UserPasswordReset,
-    UserUpdate,
-)
 from app.schemas.project import (
     ProjectCreate,
     ProjectDetail,
@@ -60,6 +47,20 @@ from app.schemas.employee import (
     EmployeeDetail,
     EmployeeListItem,
     EmployeeUpdate,
+)
+from app.schemas.forecast import (
+    ForecastCloneRequest,
+    ForecastLineCreate,
+    ForecastLineResponse,
+    ForecastLineSummary,
+    ForecastLineUpdate,
+    ForecastMonthCell,
+    ForecastMonthCellInput,
+    ForecastMonthsUpdate,
+    ForecastVersionCreate,
+    ForecastVersionDetail,
+    ForecastVersionListItem,
+    ForecastVersionUpdate,
 )
 
 __all__ = [
@@ -105,6 +106,19 @@ __all__ = [
     "EmployeeDetail",
     "EmployeeListItem",
     "EmployeeUpdate",
+    # forecasts
+    "ForecastCloneRequest",
+    "ForecastLineCreate",
+    "ForecastLineResponse",
+    "ForecastLineSummary",
+    "ForecastLineUpdate",
+    "ForecastMonthCell",
+    "ForecastMonthCellInput",
+    "ForecastMonthsUpdate",
+    "ForecastVersionCreate",
+    "ForecastVersionDetail",
+    "ForecastVersionListItem",
+    "ForecastVersionUpdate",
     # internal helpers (not for direct API use)
     "_project_to_detail",
     "_project_to_list_item",
