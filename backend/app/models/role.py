@@ -12,6 +12,14 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
+ADMIN_ROLE_NAME = "admin"
+
+# Managed by app/scripts/seed_rbac.py, which grants it the whole permission
+# catalogue on every run. Protected from edits through the API so an
+# administrator cannot lock the organisation out of user administration.
+PROTECTED_ROLE_NAMES = frozenset({ADMIN_ROLE_NAME})
+
+
 class Role(Base):
     __tablename__ = "roles"
 

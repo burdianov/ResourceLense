@@ -7,7 +7,12 @@ from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.role import Role
 from app.models.user import User
-from app.schemas.user import UserCreate, UserListItem, UserUpdate
+from app.schemas.user import (
+    UserCreate,
+    UserListItem,
+    UserPasswordReset,
+    UserUpdate,
+)
 
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -126,6 +131,12 @@ def update_user(
         user.is_active = data.is_active
 
     if data.roles is not None:
+        if user.id == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You cannot change your own roles",
+            )
+
         roles = list(db.scalars(select(Role).where(Role.name.in_(data.roles))).all())
 
         found_role_names = {role.name for role in roles}
@@ -149,3 +160,29 @@ def update_user(
         is_active=user.is_active,
         roles=sorted(role.name for role in user.roles),
     )
+
+
+@router.put(
+    "/{user_id}/password",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def reset_user_password(
+    user_id: int,
+    data: UserPasswordReset,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("users.edit")),
+) -> None:
+    user = db.get(User, user_id)
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    user.hashed_password = hash_password(data.password)
+
+    # Invalidate any session the user already had open.
+    user.token_version += 1
+
+    db.commit()

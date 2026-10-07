@@ -2,17 +2,33 @@ from sqlalchemy import select
 
 from app.db.session import SessionLocal
 from app.models.permission import Permission
-from app.models.role import Role
+from app.models.role import ADMIN_ROLE_NAME, Role
 
 
 PERMISSIONS = {
     "users.view": "View users",
     "users.create": "Create users",
     "users.edit": "Edit users",
+    "roles.view": "View roles and the permission catalogue",
+    "roles.create": "Create roles",
+    "roles.edit": "Edit roles and their permissions",
+    "roles.delete": "Delete roles",
     "projects.view": "View projects",
     "projects.create": "Create projects",
     "projects.edit": "Edit projects",
-    "projects.delete": "Delete projects",
+    "projects.archive": "Archive and unarchive projects",
+    "project_memberships.view": "View project access assignments",
+    "project_memberships.manage": "Grant and revoke project access",
+    "project_approvers.view": "View project approver configuration",
+    "project_approvers.manage": "Configure project approvers",
+    "master_data.view": "View departments, designations, categories, trades and providers",
+    "master_data.manage": "Manage departments, designations, categories, trades and providers",
+    "employees.view": "View employee records",
+    "employees.create": "Create employee records",
+    "employees.edit": "Edit employee records",
+    "employees.terminate": "Terminate and reactivate employees",
+    "rates.view": "View hourly rate history",
+    "rates.manage": "Create and end hourly rate records",
     "resources.view": "View resources",
     "resources.create": "Create resources",
     "resources.edit": "Edit resources",
@@ -20,6 +36,7 @@ PERMISSIONS = {
     "planning.view": "View resource planning",
     "planning.edit": "Edit resource planning",
     "reports.view": "View reports",
+    "reports.export": "Export reports as PDF, Excel or CSV",
 }
 
 
@@ -44,7 +61,7 @@ def main() -> None:
 
             permissions.append(permission)
 
-        admin_role = db.scalar(select(Role).where(Role.name == "admin"))
+        admin_role = db.scalar(select(Role).where(Role.name == ADMIN_ROLE_NAME))
 
         if admin_role is None:
             admin_role = Role(

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -37,6 +37,16 @@ class User(Base):
         Boolean,
         default=True,
         server_default="true",
+        nullable=False,
+    )
+
+    # Incremented to invalidate every access token already issued to this user.
+    # The value is embedded in the JWT as the `ver` claim and compared on each
+    # request, so logout and password resets take effect immediately.
+    token_version: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
         nullable=False,
     )
 

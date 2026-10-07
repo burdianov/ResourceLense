@@ -28,12 +28,14 @@ def create_access_token(
     subject: str | int,
     secret_key: str,
     expires_minutes: int,
+    token_version: int = 0,
     additional_claims: dict[str, Any] | None = None,
 ) -> str:
     now = datetime.now(UTC)
 
     payload: dict[str, Any] = {
         "sub": str(subject),
+        "ver": token_version,
         "iat": now,
         "exp": now + timedelta(minutes=expires_minutes),
     }

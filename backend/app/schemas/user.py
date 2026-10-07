@@ -26,3 +26,7 @@ class UserUpdate(BaseModel):
     )
     is_active: bool | None = None
     roles: list[str] | None = None
+
+
+class UserPasswordReset(BaseModel):
+    password: str = Field(min_length=8, max_length=128)

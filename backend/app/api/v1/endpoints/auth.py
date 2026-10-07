@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_user
+from app.api.dependencies import collect_permissions, get_current_user, get_optional_current_user
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.db.session import get_db
@@ -35,6 +35,7 @@ def login(
         subject=user.id,
         secret_key=settings.jwt_secret_key,
         expires_minutes=settings.access_token_expire_minutes,
+        token_version=user.token_version,
     )
 
     response.set_cookie(
@@ -49,7 +50,17 @@ def login(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response) -> None:
+def logout(
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+) -> None:
+    if current_user is not None:
+        # Bumping the token version invalidates every token already issued to
+        # this user, so logout is a real server-side revocation.
+        current_user.token_version += 1
+        db.commit()
+
     response.delete_cookie(
         key="access_token",
         path="/",
@@ -63,21 +74,11 @@ def logout(response: Response) -> None:
 def get_me(
     current_user: User = Depends(get_current_user),
 ) -> CurrentUserResponse:
-    roles = sorted(role.name for role in current_user.roles)
-
-    permissions = sorted(
-        {
-            permission.name
-            for role in current_user.roles
-            for permission in role.permissions
-        }
-    )
-
     return CurrentUserResponse(
         id=current_user.id,
         email=current_user.email,
         full_name=current_user.full_name,
         is_active=current_user.is_active,
-        roles=roles,
-        permissions=permissions,
+        roles=sorted(role.name for role in current_user.roles),
+        permissions=sorted(collect_permissions(current_user)),
     )

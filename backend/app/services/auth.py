@@ -10,8 +10,12 @@ def authenticate_user(
     email: str,
     password: str,
 ) -> User | None:
+    # Emails are stored lower-cased (see the user admin endpoints), so the
+    # lookup has to normalise the same way.
+    normalized_email = email.strip().lower()
+
     statement = select(User).where(
-        User.email == email,
+        User.email == normalized_email,
     )
 
     user = db.scalar(statement)
