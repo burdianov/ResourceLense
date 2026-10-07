@@ -12,9 +12,9 @@
 
 ## Verification evidence (as of 2026-10-08)
 
-- `cd backend && uv run pytest -q` → **77 passed** (auth, RBAC, users, roles, projects, master data, employees, rates).
-- `uv run alembic current` → `523de1f79d30 (head)` — business master data migration is applied to the dev database.
-- All business work (Phases 2–3) was committed to `main` on 2026-10-08 as `9fb87e9` **"Add business master data and rate engine (phases 2-3)"** — the working tree was clean when Phase 4 started.
+- `cd backend && uv run pytest -q` → **101 passed** (auth, RBAC, users, roles, projects, master data, employees, rates, forecasts).
+- `uv run alembic current` → `9763603b7163 (head)` — business settings + forecast engine applied to the dev database.
+- Commits on `main` (2026-10-08): `9fb87e9` master data + rate engine (phases 2–3), `c784b47` forecast engine backend (phase 4). Working tree clean after each.
 
 ## Phase status
 
@@ -23,8 +23,9 @@
 | 1 | Inspect + final schema / ERD design | ⚠️ **PARTIAL** — see below |
 | 2 | Master data (backend) | ✅ **DONE** |
 | 2f | Master data frontend UI | ❌ NOT STARTED |
-| 3 | Rate engine (backend) | ✅ **DONE** (3 minor follow-ups) |
-| 4 | Forecast engine (+ editor) | ❌ NOT STARTED — **next up** |
+| 3 | Rate engine (backend) | ✅ **DONE** (2 small follow-ups; #3 resolved in Phase 4) |
+| 4 | Forecast engine (backend) | ✅ **DONE** |
+| 4f | Forecast editor UI (spreadsheet grid) | ❌ NOT STARTED — **next up** |
 | 5 | Assignment engine | ❌ NOT STARTED |
 | 6 | Transfers | ❌ NOT STARTED |
 | 7 | Leave | ❌ NOT STARTED |
@@ -62,7 +63,24 @@ All with backend-enforced project scope, RBAC guards, and tests:
 - Follow-ups (not blocking Phase 4):
   1. Overlap prevention is **service-level only** — no DB exclusion/range constraint (§19 "if practical"); `hourly_rate >= 0` and other §91 check constraints are API-level, not DB-level (migration has only PK/FK/unique).
   2. No index on `(designation_id, effective_from)` / `(employee_id, effective_from)` (§98).
-  3. `208` is a single Python constant — §22 wants configurable business settings; add the `business_settings` table in Phase 4 when the first cost calculation lands.
+  3. ~~`208` as a Python constant~~ — **resolved in Phase 4**: `business_settings.monthly_standard_hours` (seeded by migration) + `app/services/settings.py`; `rates.monthly_cost` now takes the configured value.
+
+### Phase 4 — Forecast engine: DONE (backend)
+
+- `business_settings` (key/value) with `monthly_standard_hours = 208` seeded by migration; `backend/app/services/settings.py` reads it centrally (§22). The only 208 in the backend is the fallback default in that module.
+- `forecast_versions`, `forecast_lines`, `forecast_line_months` (`backend/app/models/forecast.py`, migration `9763603b7163_business_settings_and_forecast_engine.py`): DB check constraints (named ⇒ headcount = 1, headcount ≥ 1, allocation 0–100, month = first day), unique `(line, month)`, partial unique index for one current version per project+type, indexes on the line FKs.
+- `backend/app/services/forecasts.py`: create (per project+type numbering), clone into a new draft, publish (re-resolve + freeze snapshots, supersede previous current in one transaction), refresh-rates, archive, draft soft delete.
+- `backend/app/services/forecast_costs.py`: FTE/hours for all viewers; `hourly_rate`/`cost`/`rate_source`/`missing_rate` only with `forecasts.cost.view` (§95); published versions use frozen snapshots only — drafts fall back to live resolution; a missing rate is flagged, never zero (§21).
+- Endpoints `backend/app/api/v1/endpoints/forecasts.py`: list/create/detail/patch, clone, publish, refresh-rates, archive, `DELETE` (draft only), line CRUD, bulk month upsert (`PUT /forecasts/lines/{id}/months`) — enough for the editor's fill/copy operations. Any write to a published version returns 409; project scope enforced server-side.
+- Scope helpers extracted to `backend/app/api/scope.py` and reused by forecast endpoints (§9).
+- RBAC: `forecasts.view/create/edit/publish/cost.view` seeded; `tests/test_roles.py` now derives expected counts from the seed catalogue.
+- Tests `backend/tests/test_forecasts.py` (24): numbering, repeated designations, named/unnamed rules, month normalisation, FTE/hours, the §28 worked example (3 × 50% × 208 × 80 = 24,960), employee-over-designation precedence, missing-rate flag, publish/supersede, **frozen snapshot unchanged after rate change (§99)**, immutability, draft soft delete, archive, permission + cost-visibility gating, project scope (§104).
+- Deliberate decisions:
+  - Rate snapshots resolve against the **first day of each month** (UTC).
+  - Drafts keep live-resolution snapshots on write and via Refresh Rates; publish always re-resolves and freezes.
+  - Publishing an empty version is rejected (422); missing rates do **not** block publish — they surface as `missing_rate` for the §61 dashboard alert.
+  - Month cells set to 0 are kept (blank/0 both accepted per §30).
+  - Cost view is a response-shaping concern: same endpoints, fields omitted without the permission.
 
 ### Decisions taken (do not re-litigate unless requirements change)
 
@@ -71,14 +89,14 @@ All with backend-enforced project scope, RBAC guards, and tests:
 - Cost/rate visibility is gated by `rates.view`; the design doc's proposed `employees.cost.view` was not adopted (rate endpoints are the only place rates are returned).
 - Legacy `resources.*` permissions remain in the seed; retiring them (proposed in `business_permissions_design.md`) is still pending.
 - Frontend nav (`frontend/src/components/layout/navigation.ts`) still keys the Resources item on `resources.view`; revisit when the employees/master-data UI is built.
+- Business settings live in a key/value `business_settings` table (not a single-row settings table) so new keys can be added without schema churn.
+- Forecast months are whole months; partial-month fractioning (§39) applies only to actual assignments (Phase 5).
 
 ### Next session — start here
 
-1. **Commit the current working tree** (Phases 2–3 are uncommitted).
-2. **Phase 4 — Forecast engine**: `forecast_versions`, `forecast_lines`, `forecast_line_months` (months as rows, unique `(forecast_line_id, month)`, `YYYY-MM-01`), repeated designation rows allowed (§24), named headcount = 1 / unnamed ≥ 1, clone → draft → publish → supersede lifecycle (§23), **rate snapshots frozen on publish** (§27), costs always calculated dynamically (never stored, §26), `business_settings.monthly_standard_hours`.
-   - Reuse/extract the project-scope helpers from `endpoints/projects.py` into a shared module (e.g. `app/api/scope.py`) so forecast endpoints enforce §9 scope without importing from the projects endpoint.
-   - Add the forecast permission names (`forecasts.*`) to `seed_rbac.py` when those endpoints land (catalogue in `business_permissions_design.md`).
-3. Backlog: master-data frontend UI (Phase 2f), ERD doc (Phase 1 gap), DB-level constraints/index follow-ups from Phase 3.
+1. **Phase 4f — Forecast editor UI** (spec #30–#32): spreadsheet-style grid with sticky designation/employee columns, sticky header, horizontally scrollable month columns, keyboard navigation, fill right/range, row duplicate, percentage presets, in-grid validation, save-state indicator, and a Cost View toggle gated by `forecasts.cost.view`. The backend is ready — especially `PUT /forecasts/lines/{id}/months` for arbitrary cell batches; frontend needs a `features/forecasts/` module + types + query keys, following the existing `features/roles` pattern.
+2. Then **Phase 5 — Assignment engine** (spec #33–#39): `employee_project_assignments`, assignment requests + approvals, availability engine, allocation validation under lock.
+3. Backlog: master-data frontend UI (Phase 2f), DB-level rate/check constraints + effective-date indexes (Phase 3 follow-ups), ERD doc (Phase 1 gap), retire legacy `resources.*` permissions.
 
 ### How to verify / update this block
 
